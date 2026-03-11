@@ -9,15 +9,17 @@
 
   // --- Configuration ---
   const CONFIG = {
-    defaultSpeed: 50,
-    speeds: [1, 10, 25, 50, 100, 200],
-    cameraOffset: { heading: 0, pitch: -30, range: 8000 },
+    defaultSpeed: 10,
+    speeds: [1, 2, 5, 10, 25, 50],
     pathColor: '#FFD700',
     pathGlowColor: '#FFE44D',
     groundShadowAlpha: 0.25,
     wallAlpha: 0.12,
-    markerSize: 14,
     trailWidth: 3,
+    // Chase camera settings
+    chaseRange: 1200,    // meters behind
+    chasePitch: -15,     // degrees (look slightly down)
+    chaseSmoothing: 0.04, // heading lerp factor (0-1, lower = smoother)
   };
 
   // --- State ---
@@ -39,6 +41,10 @@
     liveTrailPositions: [],
     livePollTimer: null,
     liveLastData: null,
+    // Chase camera state
+    cameraHeading: 0,
+    currentHeading: 0,
+    aircraftIconUrl: null,
   };
 
   // ============================================================
@@ -59,6 +65,182 @@
 
   function hideTokenModal() {
     document.getElementById('tokenModal').classList.remove('visible');
+  }
+
+  // ============================================================
+  // Aircraft Icon (Sling TSi 916 top-down silhouette)
+  // ============================================================
+
+  function createAircraftIcon() {
+    const s = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = s;
+    canvas.height = s;
+    const ctx = canvas.getContext('2d');
+    const cx = s / 2;
+    const cy = s / 2;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    const gold = '#FFE44D';
+    const darkGold = '#B8960F';
+
+    // Glow effect
+    ctx.shadowColor = 'rgba(255, 228, 77, 0.6)';
+    ctx.shadowBlur = 8;
+
+    // === Fuselage ===
+    ctx.fillStyle = gold;
+    ctx.strokeStyle = darkGold;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, -38);  // nose tip
+    ctx.bezierCurveTo(3, -34, 5, -20, 5, 0);
+    ctx.lineTo(5, 28);
+    ctx.quadraticCurveTo(5, 34, 0, 36); // tail cone
+    ctx.quadraticCurveTo(-5, 34, -5, 28);
+    ctx.lineTo(-5, 0);
+    ctx.bezierCurveTo(-5, -20, -3, -34, 0, -38);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // === Wings ===
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.moveTo(-5, -4);
+    ctx.lineTo(-40, 6);     // left wingtip leading
+    ctx.lineTo(-38, 10);    // left wingtip trailing
+    ctx.lineTo(-5, 4);
+    ctx.lineTo(5, 4);
+    ctx.lineTo(38, 10);     // right wingtip trailing
+    ctx.lineTo(40, 6);      // right wingtip leading
+    ctx.lineTo(5, -4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Wing stripes (detail)
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-8, 0); ctx.lineTo(-35, 8);
+    ctx.moveTo(8, 0);  ctx.lineTo(35, 8);
+    ctx.stroke();
+
+    // === Horizontal Stabilizer ===
+    ctx.fillStyle = gold;
+    ctx.strokeStyle = darkGold;
+    ctx.lineWidth = 1.5;
+    ctx.shadowBlur = 4;
+    ctx.beginPath();
+    ctx.moveTo(-4, 26);
+    ctx.lineTo(-18, 31);
+    ctx.lineTo(-16, 34);
+    ctx.lineTo(-4, 32);
+    ctx.lineTo(4, 32);
+    ctx.lineTo(16, 34);
+    ctx.lineTo(18, 31);
+    ctx.lineTo(4, 26);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // === Vertical Stabilizer (top-down = thin line) ===
+    ctx.strokeStyle = darkGold;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, 24);
+    ctx.lineTo(0, 35);
+    ctx.stroke();
+
+    // === Propeller disc ===
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath();
+    ctx.ellipse(0, -40, 16, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === Cockpit canopy ===
+    ctx.fillStyle = 'rgba(120,200,255,0.4)';
+    ctx.strokeStyle = 'rgba(120,200,255,0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(0, -18, 3.5, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // === Engine cowling highlight ===
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.beginPath();
+    ctx.ellipse(0, -32, 3, 4, 0, -Math.PI, 0);
+    ctx.fill();
+
+    ctx.restore();
+    return canvas.toDataURL('image/png');
+  }
+
+  // ============================================================
+  // Chase Camera
+  // ============================================================
+
+  function setupChaseCamera(viewer) {
+    viewer.scene.preUpdate.addEventListener(function () {
+      if (!state.isFollowing || !state.aircraftEntity) return;
+      if (state.liveMode) return;
+      if (!state.isPlaying && !state.currentFlight) return;
+
+      const time = viewer.clock.currentTime;
+      const position = state.aircraftEntity.position.getValue(time);
+      if (!position) return;
+
+      // Get future position to determine heading
+      const dt = 10;
+      const futureTime = Cesium.JulianDate.addSeconds(time, dt, new Cesium.JulianDate());
+      const futurePos = state.aircraftEntity.position.getValue(futureTime);
+      if (!futurePos) return;
+
+      const carto = Cesium.Cartographic.fromCartesian(position);
+      const futureCarto = Cesium.Cartographic.fromCartesian(futurePos);
+
+      const dLon = futureCarto.longitude - carto.longitude;
+      const dLat = futureCarto.latitude - carto.latitude;
+      const targetHeading = Math.atan2(dLon * Math.cos(carto.latitude), dLat);
+
+      // Smooth heading transition
+      state.cameraHeading = lerpAngleRad(
+        state.cameraHeading,
+        targetHeading,
+        CONFIG.chaseSmoothing
+      );
+
+      // Position camera behind the aircraft using lookAt
+      // In Cesium HeadingPitchRange: heading=0 means camera is north of target
+      // We want camera BEHIND the plane, so offset by π from travel direction
+      const cameraHeading = state.cameraHeading + Math.PI;
+
+      try {
+        viewer.camera.lookAt(
+          position,
+          new Cesium.HeadingPitchRange(
+            cameraHeading,
+            Cesium.Math.toRadians(CONFIG.chasePitch),
+            CONFIG.chaseRange
+          )
+        );
+      } catch (e) {
+        // Ignore camera errors during transitions
+      }
+    });
+  }
+
+  function releaseChaseCamera() {
+    if (state.viewer) {
+      try {
+        state.viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+      } catch (e) {}
+    }
   }
 
   // ============================================================
@@ -102,6 +284,12 @@
       viewer.clock.clockRange = Cesium.ClockRange.CLAMPED;
 
       state.viewer = viewer;
+
+      // Create aircraft icon
+      state.aircraftIconUrl = createAircraftIcon();
+
+      // Set up chase camera
+      setupChaseCamera(viewer);
 
       // Set up tick listener for UI updates
       viewer.clock.onTick.addEventListener(onClockTick);
@@ -402,28 +590,39 @@
       state.flightEntities.push(arrMarker);
     }
 
-    // --- Aircraft entity (animated) ---
+    // --- Aircraft entity (animated with Sling TSi icon) ---
     const aircraft = viewer.entities.add({
       position: positionProperty,
       orientation: new Cesium.VelocityOrientationProperty(positionProperty),
-      point: {
-        pixelSize: CONFIG.markerSize,
-        color: Cesium.Color.fromCssColorString('#FFE44D'),
-        outlineColor: Cesium.Color.WHITE,
-        outlineWidth: 2,
+      billboard: {
+        image: state.aircraftIconUrl,
+        width: 48,
+        height: 48,
+        rotation: new Cesium.CallbackProperty(function () {
+          // Rotate billboard to match aircraft heading
+          return -Cesium.Math.toRadians(state.currentHeading);
+        }, false),
+        alignedAxis: new Cesium.CallbackProperty(function (time) {
+          // Align rotation axis to globe surface normal at aircraft position
+          var pos = positionProperty.getValue(time);
+          if (!pos) return Cesium.Cartesian3.UNIT_Z;
+          return Cesium.Cartesian3.normalize(pos, new Cesium.Cartesian3());
+        }, false),
         heightReference: Cesium.HeightReference.NONE,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        scaleByDistance: new Cesium.NearFarScalar(500, 1.5, 50000, 0.6),
       },
       label: {
         text: flight.aircraft.registration,
-        font: 'bold 14px Inter, sans-serif',
+        font: 'bold 13px Inter, sans-serif',
         fillColor: Cesium.Color.fromCssColorString('#FFE44D'),
         style: Cesium.LabelStyle.FILL_AND_OUTLINE,
         outlineWidth: 3,
         outlineColor: Cesium.Color.BLACK,
         verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-        pixelOffset: new Cesium.Cartesian2(0, -20),
+        pixelOffset: new Cesium.Cartesian2(0, -30),
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        scaleByDistance: new Cesium.NearFarScalar(500, 1.0, 50000, 0.5),
       },
       path: {
         resolution: 1,
@@ -470,14 +669,14 @@
     const lngRange = maxLng - minLng;
     const maxRange = Math.max(latRange, lngRange);
 
-    // Calculate height based on extent
-    const height = Math.max(maxRange * 111000 * 3.5, 15000);
+    // Calculate height based on extent (zoomed out more)
+    const height = Math.max(maxRange * 111000 * 5, 25000);
 
     viewer.camera.flyTo({
       destination: Cesium.Cartesian3.fromDegrees(centerLng, centerLat, height),
       orientation: {
         heading: Cesium.Math.toRadians(0),
-        pitch: Cesium.Math.toRadians(-65),
+        pitch: Cesium.Math.toRadians(-55),
         roll: 0,
       },
       duration: 1.5,
@@ -505,7 +704,7 @@
 
     // Phase 1: Start from high orbit with dramatic angle
     state.viewer.camera.setView({
-      destination: Cesium.Cartesian3.fromDegrees(centerLng - 2, centerLat - 3, 800000),
+      destination: Cesium.Cartesian3.fromDegrees(centerLng - 2, centerLat - 3, 1200000),
       orientation: {
         heading: Cesium.Math.toRadians(30),
         pitch: Cesium.Math.toRadians(-25),
@@ -513,14 +712,14 @@
       },
     });
 
-    // Phase 2: Cinematic swoop down to the flight
+    // Phase 2: Cinematic swoop down to the flight (more zoomed out)
     setTimeout(() => {
-      const height = Math.max(maxRange * 111000 * 3, 15000);
+      const height = Math.max(maxRange * 111000 * 5, 30000);
       state.viewer.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(centerLng + 0.3, centerLat - 0.2, height),
         orientation: {
           heading: Cesium.Math.toRadians(-20),
-          pitch: Cesium.Math.toRadians(-50),
+          pitch: Cesium.Math.toRadians(-45),
           roll: 0,
         },
         duration: 3.5,
@@ -530,10 +729,14 @@
           selectFlight(0);
           setTimeout(() => {
             play();
-            // Follow the aircraft
+            // Enable chase camera (behind the plane)
             state.isFollowing = true;
-            if (state.aircraftEntity) {
-              state.viewer.trackedEntity = state.aircraftEntity;
+            // Initialize camera heading from first track points
+            const t = window.FLIGHTS[0].track;
+            if (t.length >= 2) {
+              const dLng = (t[1].lng - t[0].lng) * Math.cos(t[0].lat * Math.PI / 180);
+              const dLat = t[1].lat - t[0].lat;
+              state.cameraHeading = Math.atan2(dLng, dLat);
             }
             document.getElementById('btnFollow').classList.add('active');
           }, 800);
@@ -547,10 +750,9 @@
     const btn = document.getElementById('btnFollow');
     btn.classList.toggle('active', state.isFollowing);
 
-    if (state.isFollowing && state.aircraftEntity) {
-      state.viewer.trackedEntity = state.aircraftEntity;
-    } else {
-      state.viewer.trackedEntity = undefined;
+    if (!state.isFollowing) {
+      // Release chase camera lock
+      releaseChaseCamera();
     }
   }
 
@@ -573,10 +775,6 @@
     state.viewer.clock.shouldAnimate = true;
     state.viewer.clock.multiplier = state.speedMultiplier;
 
-    if (state.isFollowing && state.aircraftEntity) {
-      state.viewer.trackedEntity = state.aircraftEntity;
-    }
-
     updatePlayButton();
   }
 
@@ -584,6 +782,7 @@
     if (!state.viewer) return;
     state.isPlaying = false;
     state.viewer.clock.shouldAnimate = false;
+    releaseChaseCamera();
     updatePlayButton();
   }
 
@@ -658,6 +857,9 @@
       currentPoint = track[track.length - 1];
       progress = 1;
     }
+
+    // Store current heading for billboard rotation and chase camera
+    state.currentHeading = currentPoint.hdg || 0;
 
     // Update HUD
     updateHUD(currentPoint, progress, flight);
@@ -953,8 +1155,8 @@
             selectFlight(state.currentFlightIndex + 1);
           break;
         case 'Escape':
-          if (state.viewer) state.viewer.trackedEntity = undefined;
           state.isFollowing = false;
+          releaseChaseCamera();
           document.getElementById('btnFollow').classList.remove('active');
           break;
       }
@@ -982,6 +1184,13 @@
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
     return ((a + diff * t) + 360) % 360;
+  }
+
+  function lerpAngleRad(a, b, t) {
+    let diff = b - a;
+    while (diff > Math.PI) diff -= 2 * Math.PI;
+    while (diff < -Math.PI) diff += 2 * Math.PI;
+    return a + diff * t;
   }
 
   function formatDate(dateStr) {

@@ -27,8 +27,8 @@ window.FLIGHTS = [
     date: "2026-03-11",
     fr24Id: "3eb0a433",
     aircraft: { registration: "ZU-WBG", type: "Sling TSi", icao: "00AE22" },
-    departure: { name: "Cape Town Area", lat: -33.7525, lng: 18.5477 },
-    arrival: { name: "Cape Town Area", lat: -33.7605, lng: 18.5497 },
+    departure: { icao: "FAFK", name: "Fisantekraal", lat: -33.7525, lng: 18.5477 },
+    arrival: { icao: "FAFK", name: "Fisantekraal", lat: -33.7605, lng: 18.5497 },
     duration: 161,
     maxAlt: 5150,
     track: [
@@ -64,8 +64,8 @@ window.FLIGHTS = [
     date: "2026-03-07",
     fr24Id: "3ea2c877",
     aircraft: { registration: "ZU-WBG", type: "Sling TSi", icao: "00AE22" },
-    departure: { name: "Cape Town Area", lat: -33.7647, lng: 18.5486 },
-    arrival: { icao: "FARB", name: "Robertson", lat: -33.8119, lng: 19.9028 },
+    departure: { icao: "FAFK", name: "Fisantekraal", lat: -33.7647, lng: 18.5486 },
+    arrival: { icao: "FARS", name: "Robertson", lat: -33.8119, lng: 19.9028 },
     duration: 60,
     maxAlt: 5325,
     track: [
@@ -101,8 +101,8 @@ window.FLIGHTS = [
     date: "2026-03-07",
     fr24Id: "3ea31b46",
     aircraft: { registration: "ZU-WBG", type: "Sling TSi", icao: "00AE22" },
-    departure: { icao: "FARB", name: "Robertson", lat: -33.8125, lng: 19.9020 },
-    arrival: { name: "Cape Town Area", lat: -33.9793, lng: 18.8206 },
+    departure: { icao: "FARS", name: "Robertson", lat: -33.8125, lng: 19.9020 },
+    arrival: { icao: "FASH", name: "Stellenbosch", lat: -33.9793, lng: 18.8206 },
     duration: 63,
     maxAlt: 6175,
     track: [
