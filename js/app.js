@@ -298,6 +298,7 @@
 
       // Helper: build UI and auto-select first flight
       function startApp() {
+        ensureFlightDistances();
         buildFlightList();
         if (window.FLIGHTS.length > 0) {
           autoSelectFirstFlight();
@@ -373,6 +374,7 @@
         </div>
         <div class="flight-meta">
           <span>&#9650; ${flight.maxAlt ? flight.maxAlt.toLocaleString() + ' ft' : '-'}</span>
+          ${flight.distance ? '<span>&#8594; ' + flight.distance + ' km</span>' : ''}
         </div>
       `;
 
@@ -412,7 +414,7 @@
     state.isPlaying = false;
 
     clearFlightEntities();
-    renderFlight(flight);
+    renderFlight(flight, { skipCameraFly: state._skipCameraFly });
     updateFlightInfoPanel(flight);
     showPlaybackBar();
     updatePlayButton();
@@ -427,7 +429,8 @@
     state.aircraftEntity = null;
   }
 
-  function renderFlight(flight) {
+  function renderFlight(flight, opts) {
+    opts = opts || {};
     const viewer = state.viewer;
     const track = flight.track;
 
@@ -638,8 +641,10 @@
     state.aircraftEntity = aircraft;
     state.flightEntities.push(aircraft);
 
-    // --- Camera: fly to show full path ---
-    flyToFlightOverview(flight);
+    // --- Camera: fly to show full path (unless skipped for cinematic intro) ---
+    if (!opts.skipCameraFly) {
+      flyToFlightOverview(flight);
+    }
 
     // Draw altitude profile
     drawAltitudeProfile(flight);
@@ -702,6 +707,11 @@
     const lngRange = maxLng - minLng;
     const maxRange = Math.max(latRange, lngRange);
 
+    // Select flight immediately (sets up entities, clock, etc.) but DON'T fly camera
+    state._skipCameraFly = true;
+    selectFlight(0);
+    state._skipCameraFly = false;
+
     // Phase 1: Start from high orbit with dramatic angle
     state.viewer.camera.setView({
       destination: Cesium.Cartesian3.fromDegrees(centerLng - 2, centerLat - 3, 1200000),
@@ -712,36 +722,44 @@
       },
     });
 
-    // Phase 2: Cinematic swoop down to the flight (more zoomed out)
+    // Phase 2: Cinematic swoop to the departure point
+    const depLng = track[0].lng;
+    const depLat = track[0].lat;
+    const flyDuration = 3.5; // seconds
+
+    // Helper to begin playback after cinematic intro
+    let playbackStarted = false;
+    function beginPlayback() {
+      if (playbackStarted) return; // guard against double-call
+      playbackStarted = true;
+      // Initialize camera heading from first track points
+      if (track.length >= 2) {
+        const dLng = (track[1].lng - track[0].lng) * Math.cos(track[0].lat * Math.PI / 180);
+        const dLat = track[1].lat - track[0].lat;
+        state.cameraHeading = Math.atan2(dLng, dLat);
+      }
+      state.isFollowing = true;
+      document.getElementById('btnFollow').classList.add('active');
+      play();
+    }
+
     setTimeout(() => {
-      const height = Math.max(maxRange * 111000 * 5, 30000);
       state.viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(centerLng + 0.3, centerLat - 0.2, height),
+        destination: Cesium.Cartesian3.fromDegrees(depLng + 0.05, depLat - 0.03, 4000),
         orientation: {
-          heading: Cesium.Math.toRadians(-20),
-          pitch: Cesium.Math.toRadians(-45),
+          heading: Cesium.Math.toRadians(track.length >= 2 ?
+            Math.atan2(track[1].lng - track[0].lng, track[1].lat - track[0].lat) * 180 / Math.PI : 0),
+          pitch: Cesium.Math.toRadians(-25),
           roll: 0,
         },
-        duration: 3.5,
+        duration: flyDuration,
         easingFunction: Cesium.EasingFunction.QUARTIC_IN_OUT,
-        complete: () => {
-          // Select and auto-play after camera arrives
-          selectFlight(0);
-          setTimeout(() => {
-            play();
-            // Enable chase camera (behind the plane)
-            state.isFollowing = true;
-            // Initialize camera heading from first track points
-            const t = window.FLIGHTS[0].track;
-            if (t.length >= 2) {
-              const dLng = (t[1].lng - t[0].lng) * Math.cos(t[0].lat * Math.PI / 180);
-              const dLat = t[1].lat - t[0].lat;
-              state.cameraHeading = Math.atan2(dLng, dLat);
-            }
-            document.getElementById('btnFollow').classList.add('active');
-          }, 800);
-        },
+        complete: beginPlayback,
       });
+
+      // Fallback: if complete callback never fires (e.g. flyTo cancelled),
+      // start playback after the expected duration + buffer
+      setTimeout(beginPlayback, (flyDuration + 1) * 1000);
     }, 500);
   }
 
@@ -1191,6 +1209,36 @@
     while (diff > Math.PI) diff -= 2 * Math.PI;
     while (diff < -Math.PI) diff += 2 * Math.PI;
     return a + diff * t;
+  }
+
+  // Haversine distance between two lat/lng points in km
+  function haversineKm(lat1, lng1, lat2, lng2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  // Calculate total track distance for a flight
+  function calcFlightDistance(flight) {
+    const track = flight.track;
+    let dist = 0;
+    for (let i = 1; i < track.length; i++) {
+      dist += haversineKm(track[i - 1].lat, track[i - 1].lng, track[i].lat, track[i].lng);
+    }
+    return Math.round(dist);
+  }
+
+  // Ensure all flights have a distance property
+  function ensureFlightDistances() {
+    window.FLIGHTS.forEach(f => {
+      if (!f.distance && f.track && f.track.length >= 2) {
+        f.distance = calcFlightDistance(f);
+      }
+    });
   }
 
   function formatDate(dateStr) {
