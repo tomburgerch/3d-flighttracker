@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wagyu Wings - Flight Tracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.119/Build/Cesium/Widgets/widgets.css" />
+  <style>
+    /* ============================================================
+       3D Flight Tracker - Styles
+       ============================================================ */
+
+    :root {
+      --bg-primary: #0a0a0a;
+      --bg-panel: rgba(10, 10, 10, 0.92);
+      --bg-card: rgba(30, 30, 30, 0.7);
+      --bg-card-hover: rgba(50, 50, 50, 0.85);
+      --accent: #FFD700;
+      --accent-bright: #FFE44D;
+      --accent-dim: #B8960F;
+      --text: #e0e0e0;
+      --text-muted: #999999;
+      --text-dim: #666666;
+      --border: rgba(255, 255, 255, 0.08);
+      --green: #FFD700;
+      --red: #ff5544;
+      --orange: #ffaa33;
+      --sidebar-width: 320px;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html { height: 100%; }
+
+    body {
+      font-family: 'Inter', -apple-system, system-ui, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text);
+      overflow: hidden;
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      position: relative;
+    }
+
+    /* ─── Cesium Container ─── */
+    #cesiumContainer {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      min-width: 1280px;
+      min-height: 720px;
+    }
+
+    #cesiumContainer .cesium-widget-credits { display: none !important; }
+
+    /* ─── Sidebar ─── */
+    .sidebar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: var(--sidebar-width);
+      background: var(--bg-panel);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border-right: 1px solid var(--border);
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-header {
+      padding: 20px 20px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    .logo-img {
+      height: 40px;
+      width: auto;
+      filter: brightness(0) invert(0.84) sepia(1) saturate(5) hue-rotate(10deg);
+    }
+
+    .logo-text {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      color: var(--accent);
+    }
+
+    .logo-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .aircraft-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      margin-top: 14px;
+      font-size: 12px;
+    }
+
+    .aircraft-badge .reg {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      color: var(--accent);
+    }
+
+    .aircraft-badge .type {
+      color: var(--text-muted);
+    }
+
+    /* ─── Live Status ─── */
+    .live-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      font-size: 11px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+
+    .live-dot.online {
+      background: var(--accent);
+      box-shadow: 0 0 8px rgba(255, 215, 0, 0.6);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .live-dot.offline {
+      background: var(--text-dim);
+    }
+
+    .live-status .live-track-btn {
+      margin-left: auto;
+      padding: 3px 10px;
+      border-radius: 12px;
+      border: 1px solid var(--accent-dim);
+      background: rgba(255, 215, 0, 0.1);
+      color: var(--accent);
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .live-status .live-track-btn:hover {
+      background: rgba(255, 215, 0, 0.25);
+    }
+
+    /* ─── Flight List ─── */
+    .flight-list-header {
+      padding: 14px 20px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--text-muted);
+    }
+
+    .flight-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0 12px 12px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--text-dim) transparent;
+    }
+
+    .flight-item {
+      padding: 14px 14px;
+      margin-bottom: 6px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-card);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      opacity: 0;
+      transform: translateX(-20px);
+    }
+
+    .flight-item.visible {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .flight-item:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border);
+      transform: translateX(4px);
+    }
+
+    .flight-item.selected {
+      background: rgba(255, 215, 0, 0.1);
+      border-color: var(--accent-dim);
+    }
+
+    .flight-item-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .flight-date {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .flight-duration {
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-dim);
+    }
+
+    .flight-route {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    .flight-icao {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .flight-arrow {
+      color: var(--accent);
+      font-size: 14px;
+    }
+
+    .flight-names {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .flight-meta {
+      display: flex;
+      gap: 16px;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-dim);
+    }
+
+    /* ─── Keyboard Hints ─── */
+    .keyboard-hints {
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      font-size: 10px;
+      color: var(--text-dim);
+      line-height: 1.8;
+    }
+
+    .keyboard-hints kbd {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      margin-right: 2px;
+    }
+
+    /* ─── Flight Info Panel (Right side) ─── */
+    .flight-info-panel {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 240px;
+      background: var(--bg-panel);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      z-index: 10;
+      opacity: 0;
+      transform: translateX(20px);
+      transition: all 0.3s ease;
+      pointer-events: none;
+    }
+
+    .flight-info-panel.visible {
+      opacity: 1;
+      transform: translateX(0);
+      pointer-events: auto;
+    }
+
+    .info-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--accent);
+      margin-bottom: 14px;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .info-row:last-child { border-bottom: none; }
+
+    .info-label {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .info-value {
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text);
+      text-align: right;
+      max-width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ─── HUD (Heads-Up Display) ─── */
+    .hud {
+      position: absolute;
+      bottom: 90px;
+      right: 16px;
+      display: flex;
+      gap: 12px;
+      z-index: 10;
+    }
+
+    .hud-item {
+      background: var(--bg-panel);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      text-align: center;
+      min-width: 80px;
+    }
+
+    .hud-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--accent-bright);
+      line-height: 1;
+    }
+
+    .hud-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .hud-unit {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 400;
+    }
+
+    /* ─── Playback Bar ─── */
+    .playback-bar {
+      position: absolute;
+      bottom: 0;
+      left: var(--sidebar-width);
+      right: 0;
+      height: 72px;
+      background: var(--bg-panel);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border-top: 1px solid var(--border);
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 16px;
+      opacity: 0;
+      transform: translateY(100%);
+      transition: all 0.4s ease;
+    }
+
+    .playback-bar.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .playback-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .playback-btn {
+      width: 36px;
+      height: 36px;
+      border: none;
+      border-radius: 50%;
+      background: var(--bg-card);
+      color: var(--text);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      border: 1px solid var(--border);
+    }
+
+    .playback-btn:hover {
+      background: var(--bg-card-hover);
+      color: var(--accent-bright);
+    }
+
+    .playback-btn.primary {
+      width: 42px;
+      height: 42px;
+      background: var(--accent);
+      color: var(--bg-primary);
+      border-color: var(--accent);
+    }
+
+    .playback-btn.primary:hover {
+      background: var(--accent-bright);
+      color: var(--bg-primary);
+    }
+
+    .playback-btn.active {
+      background: rgba(255, 215, 0, 0.2);
+      color: var(--accent-bright);
+      border-color: var(--accent-dim);
+    }
+
+    .speed-btn {
+      min-width: 56px;
+      height: 28px;
+      border-radius: 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      padding: 0 10px;
+    }
+
+    /* ─── Scrubber ─── */
+    .scrubber-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .scrubber-track {
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 3px;
+      position: relative;
+      cursor: pointer;
+    }
+
+    .scrubber-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-bright));
+      border-radius: 3px;
+      width: 0%;
+      transition: width 0.1s linear;
+    }
+
+    .scrubber-handle {
+      position: absolute;
+      top: 50%;
+      left: 0%;
+      width: 14px;
+      height: 14px;
+      background: var(--accent-bright);
+      border: 2px solid white;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
+      transition: left 0.1s linear;
+    }
+
+    .scrubber-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-dim);
+    }
+
+    /* ─── Altitude Profile ─── */
+    .altitude-profile-container {
+      flex-shrink: 0;
+      width: 200px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .altitude-profile-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-dim);
+      text-align: center;
+    }
+
+    #altitudeProfile {
+      width: 200px;
+      height: 40px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    /* ─── Token Modal ─── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(5, 5, 15, 0.92);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+
+    .modal-overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal {
+      background: var(--bg-panel);
+      backdrop-filter: blur(24px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 36px;
+      max-width: 460px;
+      width: 90%;
+      text-align: center;
+    }
+
+    .modal h2 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--accent);
+    }
+
+    .modal p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+
+    .modal a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .modal a:hover {
+      text-decoration: underline;
+    }
+
+    .modal input {
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      margin-bottom: 16px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .modal input:focus {
+      border-color: var(--accent);
+    }
+
+    .modal input::placeholder {
+      color: var(--text-dim);
+    }
+
+    .modal button {
+      width: 100%;
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      border: none;
+      background: var(--accent);
+      color: var(--bg-primary);
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .modal button:hover {
+      background: var(--accent-bright);
+    }
+
+    /* ─── Loading Screen ─── */
+    .loading-screen {
+      position: fixed;
+      inset: 0;
+      background: var(--bg-primary);
+      z-index: 999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.5s ease;
+    }
+
+    .loading-screen.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .loading-spinner {
+      width: 48px;
+      height: 48px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .loading-text {
+      font-size: 14px;
+      color: var(--text-muted);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* ─── Scrollbar ─── */
+    .flight-list::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .flight-list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .flight-list::-webkit-scrollbar-thumb {
+      background: var(--text-dim);
+      border-radius: 2px;
+    }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 900px) {
+      :root { --sidebar-width: 260px; }
+      .hud { display: none; }
+      .altitude-profile-container { display: none; }
+    }
+
+    @media (max-width: 600px) {
+      :root { --sidebar-width: 220px; }
+      .flight-info-panel { display: none; }
+      .keyboard-hints { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ─── Cesium Container ─── -->
+  <div id="cesiumContainer"></div>
+
+  <!-- ─── Sidebar ─── -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <img src="logo.svg" alt="Wagyu Wings" class="logo-img" />
+      </div>
+      <div class="logo-sub">Flight Tracker</div>
+      <div class="aircraft-badge">
+        <span class="reg">ZU-WBG</span>
+        <span class="type">Sling TSi</span>
+      </div>
+    </div>
+
+    <div class="live-status" id="liveStatus">
+      <div class="live-dot" id="liveDot"></div>
+      <span id="liveText">Checking live status...</span>
+    </div>
+
+    <div class="flight-list-header">Recent Flights</div>
+    <div class="flight-list" id="flightList"></div>
+
+    <div class="keyboard-hints">
+      <kbd>Space</kbd> Play/Pause &nbsp;
+      <kbd>S</kbd> Speed &nbsp;
+      <kbd>F</kbd> Follow<br/>
+      <kbd>&larr;</kbd><kbd>&rarr;</kbd> Prev/Next &nbsp;
+      <kbd>R</kbd> Restart &nbsp;
+      <kbd>Esc</kbd> Free cam
+    </div>
+  </aside>
+
+  <!-- ─── Flight Info Panel ─── -->
+  <div class="flight-info-panel" id="flightInfoPanel">
+    <div class="info-title">Flight Details</div>
+    <div class="info-row">
+      <span class="info-label">Registration</span>
+      <span class="info-value" id="infoReg">-</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Type</span>
+      <span class="info-value" id="infoType">-</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Departure</span>
+      <span class="info-value" id="infoDep">-</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Arrival</span>
+      <span class="info-value" id="infoArr">-</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Date</span>
+      <span class="info-value" id="infoDate">-</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Distance</span>
+      <span class="info-value" id="infoDist">-</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Duration</span>
+      <span class="info-value" id="infoDuration">-</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Max Altitude</span>
+      <span class="info-value" id="infoMaxAlt">-</span>
+    </div>
+  </div>
+
+  <!-- ─── HUD ─── -->
+  <div class="hud">
+    <div class="hud-item">
+      <div class="hud-value"><span id="hudAlt">-</span><span class="hud-unit"> ft</span></div>
+      <div class="hud-label">Altitude</div>
+    </div>
+    <div class="hud-item">
+      <div class="hud-value"><span id="hudSpd">-</span><span class="hud-unit"> kt</span></div>
+      <div class="hud-label">Speed</div>
+    </div>
+    <div class="hud-item">
+      <div class="hud-value"><span id="hudHdg">-</span><span class="hud-unit">&deg;</span></div>
+      <div class="hud-label">Heading</div>
+    </div>
+    <div class="hud-item">
+      <div class="hud-value" style="font-size: 14px;"><span id="hudProgress">-</span><span class="hud-unit"> km</span></div>
+      <div class="hud-label">Distance</div>
+    </div>
+  </div>
+
+  <!-- ─── Playback Bar ─── -->
+  <div class="playback-bar" id="playbackBar">
+    <div class="playback-controls">
+      <button class="playback-btn" id="btnPrev" title="Previous flight">
+        <svg viewBox="0 0 24 24" width="16" height="16"><polygon points="17,4 7,12 17,20" fill="currentColor"/><rect x="5" y="4" width="3" height="16" fill="currentColor"/></svg>
+      </button>
+      <button class="playback-btn" id="btnRestart" title="Restart (R)">
+        <svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" fill="currentColor"/></svg>
+      </button>
+      <button class="playback-btn primary" id="btnPlay" title="Play/Pause (Space)">
+        <svg viewBox="0 0 24 24" width="20" height="20"><polygon points="5,3 19,12 5,21" fill="currentColor"/></svg>
+      </button>
+      <button class="playback-btn" id="btnNext" title="Next flight">
+        <svg viewBox="0 0 24 24" width="16" height="16"><polygon points="7,4 17,12 7,20" fill="currentColor"/><rect x="16" y="4" width="3" height="16" fill="currentColor"/></svg>
+      </button>
+      <button class="playback-btn speed-btn" id="btnSpeed" title="Change speed (S)">
+        <span id="speedDisplay">50x</span>
+      </button>
+      <button class="playback-btn" id="btnFollow" title="Toggle follow (F)">
+        <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z" fill="currentColor"/></svg>
+      </button>
+    </div>
+
+    <div class="scrubber-container">
+      <div class="scrubber-track" id="scrubberTrack">
+        <div class="scrubber-fill" id="scrubberFill"></div>
+        <div class="scrubber-handle" id="scrubberHandle"></div>
+      </div>
+      <div class="scrubber-labels">
+        <span>Start</span>
+        <span>End</span>
+      </div>
+    </div>
+
+    <div class="altitude-profile-container">
+      <span class="altitude-profile-label">Altitude Profile</span>
+      <canvas id="altitudeProfile"></canvas>
+    </div>
+  </div>
+
+  <!-- ─── Token Modal ─── -->
+  <div class="modal-overlay" id="tokenModal">
+    <div class="modal">
+      <h2>Welcome to Wagyu Wings</h2>
+      <p>
+        This app uses <strong>CesiumJS</strong> for 3D globe rendering.<br/>
+        You need a free Cesium Ion access token to continue.<br/><br/>
+        <a href="https://ion.cesium.com/signup/" target="_blank" rel="noopener">
+          Get your free token at cesium.com/ion &rarr;
+        </a><br/><br/>
+        After signing up, go to <em>Access Tokens</em> and copy your default token.
+      </p>
+      <input type="text" id="tokenInput" placeholder="Paste your Cesium Ion access token here..." />
+      <button id="tokenSubmit">Launch Flight Tracker</button>
+    </div>
+  </div>
+
+  <!-- ─── Loading Screen ─── -->
+  <div class="loading-screen" id="loadingScreen">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">Initializing Globe</div>
+  </div>
+
+  <!-- ─── Scripts ─── -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.119/Build/Cesium/Cesium.js"></script>
+  <script src="js/config.js?v=5"></script>
+  <script src="js/flights.js?v=5"></script>
+  <script src="js/fr24-sync.js?v=5"></script>
+  <script src="js/app.js?v=5"></script>
+
+</body>
+</html>
