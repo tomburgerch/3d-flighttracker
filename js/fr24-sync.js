@@ -15,7 +15,7 @@
     // FR24 flight list endpoint
     flightListUrl: 'https://api.flightradar24.com/common/v1/flight/list.json',
     playbackUrl: 'https://api.flightradar24.com/common/v1/flight-playback.json',
-    maxTrackPoints: 20, // Downsample to this many points
+    sampleInterval: 10, // seconds between track samples
   };
 
   // Check if a flight ID already exists in our data
@@ -23,13 +23,16 @@
     return window.FLIGHTS.some(f => f.fr24Id === fr24Id);
   }
 
-  // Downsample a track to maxPoints evenly-spaced points
-  function downsampleTrack(rawTrack, maxPoints) {
-    if (rawTrack.length <= maxPoints) return rawTrack;
+  // Downsample a track by time interval (every N seconds)
+  function downsampleTrack(rawTrack, interval) {
+    if (!rawTrack || rawTrack.length < 2) return rawTrack;
     const result = [rawTrack[0]]; // Always keep first
-    const step = (rawTrack.length - 1) / (maxPoints - 1);
-    for (let i = 1; i < maxPoints - 1; i++) {
-      result.push(rawTrack[Math.round(i * step)]);
+    let lastTs = rawTrack[0].timestamp;
+    for (let i = 1; i < rawTrack.length - 1; i++) {
+      if (rawTrack[i].timestamp - lastTs >= interval) {
+        result.push(rawTrack[i]);
+        lastTs = rawTrack[i].timestamp;
+      }
     }
     result.push(rawTrack[rawTrack.length - 1]); // Always keep last
     return result;
@@ -45,8 +48,8 @@
 
     const firstTimestamp = rawTrack[0].timestamp;
 
-    // Downsample
-    const sampled = downsampleTrack(rawTrack, FR24_CONFIG.maxTrackPoints);
+    // Downsample by time interval
+    const sampled = downsampleTrack(rawTrack, FR24_CONFIG.sampleInterval);
 
     const track = sampled.map(p => ({
       t: p.timestamp - firstTimestamp,
