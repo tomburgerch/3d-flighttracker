@@ -591,27 +591,21 @@
       state.flightEntities.push(arrMarker);
     }
 
-    // --- Aircraft entity (animated with Sling TSi icon) ---
+    // --- Aircraft entity (3D Sling TSi model) ---
     const aircraft = viewer.entities.add({
       position: positionProperty,
       orientation: new Cesium.VelocityOrientationProperty(positionProperty),
-      billboard: {
-        image: state.aircraftIconUrl,
-        width: 48,
-        height: 48,
-        rotation: new Cesium.CallbackProperty(function () {
-          // Rotate billboard to match aircraft heading
-          return -Cesium.Math.toRadians(state.currentHeading);
-        }, false),
-        alignedAxis: new Cesium.CallbackProperty(function (time) {
-          // Align rotation axis to globe surface normal at aircraft position
-          var pos = positionProperty.getValue(time);
-          if (!pos) return Cesium.Cartesian3.UNIT_Z;
-          return Cesium.Cartesian3.normalize(pos, new Cesium.Cartesian3());
-        }, false),
+      model: {
+        uri: 'models/sling-tsi.glb',
+        minimumPixelSize: 64,
+        maximumScale: 500,
+        scale: 25,
         heightReference: Cesium.HeightReference.NONE,
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        scaleByDistance: new Cesium.NearFarScalar(500, 1.5, 50000, 0.6),
+        silhouetteColor: Cesium.Color.fromCssColorString('#FFE500'),
+        silhouetteSize: 2.0,
+        color: Cesium.Color.WHITE,
+        colorBlendMode: Cesium.ColorBlendMode.HIGHLIGHT,
+        colorBlendAmount: 0.5,
       },
       label: {
         text: flight.aircraft.registration,
@@ -621,7 +615,7 @@
         outlineWidth: 3,
         outlineColor: Cesium.Color.BLACK,
         verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-        pixelOffset: new Cesium.Cartesian2(0, -30),
+        pixelOffset: new Cesium.Cartesian2(0, -40),
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
         scaleByDistance: new Cesium.NearFarScalar(500, 1.0, 50000, 0.5),
       },
