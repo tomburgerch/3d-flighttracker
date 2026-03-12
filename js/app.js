@@ -76,7 +76,7 @@
   // ============================================================
 
   function createAircraftIcon() {
-    const s = 128;
+    const s = 64;
     const canvas = document.createElement('canvas');
     canvas.width = s;
     canvas.height = s;
@@ -87,98 +87,49 @@
     ctx.save();
     ctx.translate(cx, cy);
 
-    const gold = '#FFE44D';
-    const darkGold = '#B8960F';
+    // Clean aircraft silhouette — simple, reads well at all sizes
+    const gold = '#FFE500';
 
-    // Glow effect
-    ctx.shadowColor = 'rgba(255, 228, 77, 0.6)';
-    ctx.shadowBlur = 8;
-
-    // === Fuselage ===
-    ctx.fillStyle = gold;
-    ctx.strokeStyle = darkGold;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(0, -38);  // nose tip
-    ctx.bezierCurveTo(3, -34, 5, -20, 5, 0);
-    ctx.lineTo(5, 28);
-    ctx.quadraticCurveTo(5, 34, 0, 36); // tail cone
-    ctx.quadraticCurveTo(-5, 34, -5, 28);
-    ctx.lineTo(-5, 0);
-    ctx.bezierCurveTo(-5, -20, -3, -34, 0, -38);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // === Wings ===
+    // Glow
+    ctx.shadowColor = 'rgba(255, 229, 0, 0.7)';
     ctx.shadowBlur = 6;
-    ctx.beginPath();
-    ctx.moveTo(-5, -4);
-    ctx.lineTo(-40, 6);     // left wingtip leading
-    ctx.lineTo(-38, 10);    // left wingtip trailing
-    ctx.lineTo(-5, 4);
-    ctx.lineTo(5, 4);
-    ctx.lineTo(38, 10);     // right wingtip trailing
-    ctx.lineTo(40, 6);      // right wingtip leading
-    ctx.lineTo(5, -4);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // Wing stripes (detail)
-    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(-8, 0); ctx.lineTo(-35, 8);
-    ctx.moveTo(8, 0);  ctx.lineTo(35, 8);
-    ctx.stroke();
-
-    // === Horizontal Stabilizer ===
     ctx.fillStyle = gold;
-    ctx.strokeStyle = darkGold;
-    ctx.lineWidth = 1.5;
-    ctx.shadowBlur = 4;
+
+    // Fuselage (slim pointed body)
     ctx.beginPath();
-    ctx.moveTo(-4, 26);
-    ctx.lineTo(-18, 31);
-    ctx.lineTo(-16, 34);
-    ctx.lineTo(-4, 32);
-    ctx.lineTo(4, 32);
-    ctx.lineTo(16, 34);
-    ctx.lineTo(18, 31);
-    ctx.lineTo(4, 26);
+    ctx.moveTo(0, -26);   // nose
+    ctx.lineTo(3, -10);
+    ctx.lineTo(3, 18);
+    ctx.lineTo(0, 22);    // tail
+    ctx.lineTo(-3, 18);
+    ctx.lineTo(-3, -10);
     ctx.closePath();
     ctx.fill();
-    ctx.stroke();
 
-    // === Vertical Stabilizer (top-down = thin line) ===
-    ctx.strokeStyle = darkGold;
-    ctx.lineWidth = 3;
+    // Wings (swept back)
     ctx.beginPath();
-    ctx.moveTo(0, 24);
-    ctx.lineTo(0, 35);
-    ctx.stroke();
-
-    // === Propeller disc ===
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.beginPath();
-    ctx.ellipse(0, -40, 16, 3, 0, 0, Math.PI * 2);
+    ctx.moveTo(-3, -2);
+    ctx.lineTo(-22, 8);
+    ctx.lineTo(-20, 12);
+    ctx.lineTo(-3, 5);
+    ctx.lineTo(3, 5);
+    ctx.lineTo(20, 12);
+    ctx.lineTo(22, 8);
+    ctx.lineTo(3, -2);
+    ctx.closePath();
     ctx.fill();
 
-    // === Cockpit canopy ===
-    ctx.fillStyle = 'rgba(120,200,255,0.4)';
-    ctx.strokeStyle = 'rgba(120,200,255,0.6)';
-    ctx.lineWidth = 1;
+    // Tail stabilizer
     ctx.beginPath();
-    ctx.ellipse(0, -18, 3.5, 7, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    // === Engine cowling highlight ===
-    ctx.fillStyle = 'rgba(255,255,255,0.2)';
-    ctx.beginPath();
-    ctx.ellipse(0, -32, 3, 4, 0, -Math.PI, 0);
+    ctx.moveTo(-2, 16);
+    ctx.lineTo(-10, 22);
+    ctx.lineTo(-9, 24);
+    ctx.lineTo(-2, 20);
+    ctx.lineTo(2, 20);
+    ctx.lineTo(9, 24);
+    ctx.lineTo(10, 22);
+    ctx.lineTo(2, 16);
+    ctx.closePath();
     ctx.fill();
 
     ctx.restore();
@@ -190,6 +141,7 @@
   // ============================================================
 
   function setupChaseCamera(viewer) {
+    // Use setView instead of lookAt so user can still orbit/zoom
     viewer.scene.preUpdate.addEventListener(function () {
       if (!state.isFollowing || !state.aircraftEntity) return;
       if (state.liveMode) return;
@@ -219,32 +171,54 @@
         CONFIG.chaseSmoothing
       );
 
-      // Position camera behind the aircraft using lookAt
-      // In Cesium HeadingPitchRange: heading=0 means camera is north of target
-      // We want camera BEHIND the plane, so offset by π from travel direction
-      const cameraHeading = state.cameraHeading + Math.PI;
+      // Compute camera destination behind the aircraft
+      const behindHeading = state.cameraHeading + Math.PI;
+      const offsetDist = CONFIG.chaseRange; // meters behind
+      const R = 6378137; // Earth radius in meters
+      const offsetLat = (offsetDist * Math.cos(behindHeading)) / R;
+      const offsetLon = (offsetDist * Math.sin(behindHeading)) / (R * Math.cos(carto.latitude));
+      const camLat = carto.latitude + offsetLat;
+      const camLon = carto.longitude + offsetLon;
+      const camAlt = carto.height + 200; // slightly above aircraft
 
       try {
-        viewer.camera.lookAt(
-          position,
-          new Cesium.HeadingPitchRange(
-            cameraHeading,
-            Cesium.Math.toRadians(CONFIG.chasePitch),
-            CONFIG.chaseRange
-          )
-        );
+        viewer.camera.setView({
+          destination: Cesium.Cartesian3.fromRadians(camLon, camLat, camAlt),
+          orientation: {
+            heading: state.cameraHeading,
+            pitch: Cesium.Math.toRadians(CONFIG.chasePitch),
+            roll: 0,
+          },
+        });
       } catch (e) {
         // Ignore camera errors during transitions
       }
     });
+
+    // Auto-disengage follow when user interacts with the globe
+    var handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+    handler.setInputAction(function () {
+      if (state.isFollowing) {
+        state.isFollowing = false;
+        document.getElementById('btnFollow').classList.remove('active');
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
+    handler.setInputAction(function () {
+      if (state.isFollowing) {
+        state.isFollowing = false;
+        document.getElementById('btnFollow').classList.remove('active');
+      }
+    }, Cesium.ScreenSpaceEventType.WHEEL);
+    handler.setInputAction(function () {
+      if (state.isFollowing) {
+        state.isFollowing = false;
+        document.getElementById('btnFollow').classList.remove('active');
+      }
+    }, Cesium.ScreenSpaceEventType.RIGHT_DOWN);
   }
 
   function releaseChaseCamera() {
-    if (state.viewer) {
-      try {
-        state.viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
-      } catch (e) {}
-    }
+    // No-op now — setView doesn't lock the camera, so nothing to release
   }
 
   // ============================================================
