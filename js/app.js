@@ -45,6 +45,10 @@
     cameraHeading: 0,
     currentHeading: 0,
     aircraftIconUrl: null,
+    // Easter egg state
+    warpActive: false,
+    warpPrevSpeed: null,
+    moonViewActive: false,
   };
 
   // ============================================================
@@ -1150,6 +1154,29 @@
     document.addEventListener('keydown', e => {
       if (e.target.tagName === 'INPUT') return;
 
+      // Easter egg: Hold W for 3s = Wagyu Warp
+      if (e.key === 'w' || e.key === 'W') {
+        if (!warpHoldTimer && !state.warpActive) {
+          warpHoldTimer = setTimeout(function () {
+            activateWarp();
+          }, 3000);
+        }
+        return;
+      }
+
+      // Easter egg: Press M three times quickly = Moo-n View
+      if (e.key === 'm' || e.key === 'M') {
+        const now = Date.now();
+        moonKeyTimes.push(now);
+        // Keep only presses within the last 1.5 seconds
+        moonKeyTimes = moonKeyTimes.filter(function (t) { return now - t < 1500; });
+        if (moonKeyTimes.length >= 3) {
+          moonKeyTimes = [];
+          activateMoonView();
+        }
+        return;
+      }
+
       switch (e.key) {
         case ' ':
           e.preventDefault();
@@ -1177,6 +1204,17 @@
           releaseChaseCamera();
           document.getElementById('btnFollow').classList.remove('active');
           break;
+      }
+    });
+
+    // Wagyu Warp: release W to deactivate
+    document.addEventListener('keyup', e => {
+      if (e.key === 'w' || e.key === 'W') {
+        if (warpHoldTimer) {
+          clearTimeout(warpHoldTimer);
+          warpHoldTimer = null;
+        }
+        deactivateWarp();
       }
     });
 
@@ -1449,6 +1487,213 @@
     } catch (e) {
       console.error('Live poll error:', e);
     }
+  }
+
+  // ============================================================
+  // Easter Eggs
+  // ============================================================
+
+  // --- Wagyu Warp: Hold W for 3 seconds to engage ludicrous speed ---
+  let warpHoldTimer = null;
+
+  function activateWarp() {
+    if (state.warpActive || !state.viewer || !state.currentFlight) return;
+    state.warpActive = true;
+    state.warpPrevSpeed = state.speedMultiplier;
+    state.viewer.clock.multiplier = 1000;
+    state.viewer.clock.shouldAnimate = true;
+    state.isPlaying = true;
+    updatePlayButton();
+
+    // Show warp HUD overlay
+    let overlay = document.getElementById('warpOverlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'warpOverlay';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:100;pointer-events:none;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;transition:opacity 0.3s;';
+      overlay.innerHTML = '<div style="font-family:\'JetBrains Mono\',monospace;font-size:42px;font-weight:700;color:#FFE500;text-shadow:0 0 30px rgba(255,229,0,0.8),0 0 60px rgba(255,229,0,0.4);letter-spacing:6px;">LUDICROUS SPEED</div>' +
+        '<div style="font-family:\'JetBrains Mono\',monospace;font-size:18px;color:#FFD700;opacity:0.8;">1000x \u2022 Hold W to maintain</div>';
+      document.body.appendChild(overlay);
+    }
+    overlay.style.opacity = '1';
+
+    // Add speed lines effect via vignette
+    let lines = document.getElementById('warpLines');
+    if (!lines) {
+      lines = document.createElement('div');
+      lines.id = 'warpLines';
+      lines.style.cssText = 'position:fixed;inset:0;z-index:99;pointer-events:none;background:radial-gradient(ellipse at center, transparent 30%, rgba(255,215,0,0.06) 70%, rgba(255,215,0,0.15) 100%);animation:warpPulse 0.5s ease-in-out infinite alternate;';
+      document.body.appendChild(lines);
+
+      // Add animation keyframe if not already present
+      if (!document.getElementById('warpStyle')) {
+        const style = document.createElement('style');
+        style.id = 'warpStyle';
+        style.textContent = '@keyframes warpPulse{0%{opacity:0.5}100%{opacity:1}}';
+        document.head.appendChild(style);
+      }
+    }
+    lines.style.display = 'block';
+
+    document.getElementById('speedDisplay').textContent = '1000x';
+  }
+
+  function deactivateWarp() {
+    if (!state.warpActive) return;
+    state.warpActive = false;
+
+    // Restore previous speed
+    const prevSpeed = state.warpPrevSpeed || CONFIG.defaultSpeed;
+    setSpeed(prevSpeed);
+
+    const overlay = document.getElementById('warpOverlay');
+    if (overlay) overlay.style.opacity = '0';
+    const lines = document.getElementById('warpLines');
+    if (lines) lines.style.display = 'none';
+  }
+
+  // --- Moo-n View: Press M three times quickly to launch cow over moon ---
+  let moonKeyTimes = [];
+
+  function activateMoonView() {
+    if (state.moonViewActive || !state.viewer) return;
+    state.moonViewActive = true;
+
+    const wasPlaying = state.isPlaying;
+    const wasFollowing = state.isFollowing;
+    if (wasPlaying) pause();
+
+    // Save current camera
+    const savedPos = state.viewer.camera.positionWC.clone();
+    const savedDir = state.viewer.camera.directionWC.clone();
+    const savedUp = state.viewer.camera.upWC.clone();
+
+    // Release chase camera lock
+    releaseChaseCamera();
+    state.isFollowing = false;
+    document.getElementById('btnFollow').classList.remove('active');
+
+    // Get current aircraft position or default to South Africa
+    let centerLat = -29.0, centerLng = 27.0;
+    if (state.aircraftEntity && state.viewer.clock) {
+      try {
+        const pos = state.aircraftEntity.position.getValue(state.viewer.clock.currentTime);
+        if (pos) {
+          const carto = Cesium.Cartographic.fromCartesian(pos);
+          centerLat = Cesium.Math.toDegrees(carto.latitude);
+          centerLng = Cesium.Math.toDegrees(carto.longitude);
+        }
+      } catch (e) {}
+    }
+
+    // Create cow entity (using text billboard as a fun cow emoji)
+    const cowStart = Cesium.Cartesian3.fromDegrees(centerLng - 2, centerLat, 50000);
+    const cowPeak = Cesium.Cartesian3.fromDegrees(centerLng, centerLat + 1.5, 800000);
+    const cowEnd = Cesium.Cartesian3.fromDegrees(centerLng + 2, centerLat, 50000);
+
+    // Create a canvas for the cow icon
+    const cowCanvas = document.createElement('canvas');
+    cowCanvas.width = 128;
+    cowCanvas.height = 128;
+    const cowCtx = cowCanvas.getContext('2d');
+    cowCtx.font = '96px serif';
+    cowCtx.textAlign = 'center';
+    cowCtx.textBaseline = 'middle';
+    cowCtx.fillText('\uD83D\uDC04', 64, 64);
+    const cowUrl = cowCanvas.toDataURL();
+
+    // Create a sampled position for the cow's arc
+    const now = state.viewer.clock.currentTime.clone();
+    const cowProperty = new Cesium.SampledPositionProperty();
+    cowProperty.setInterpolationOptions({
+      interpolationDegree: 2,
+      interpolationAlgorithm: Cesium.HermitePolynomialApproximation,
+    });
+    const t0 = now;
+    const t1 = Cesium.JulianDate.addSeconds(now, 2, new Cesium.JulianDate());
+    const t2 = Cesium.JulianDate.addSeconds(now, 4, new Cesium.JulianDate());
+    cowProperty.addSample(t0, cowStart);
+    cowProperty.addSample(t1, cowPeak);
+    cowProperty.addSample(t2, cowEnd);
+
+    const cowEntity = state.viewer.entities.add({
+      position: cowProperty,
+      billboard: {
+        image: cowUrl,
+        width: 64,
+        height: 64,
+        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+      },
+    });
+
+    // Show "Moo-n View" text overlay
+    let moonOverlay = document.getElementById('moonOverlay');
+    if (!moonOverlay) {
+      moonOverlay = document.createElement('div');
+      moonOverlay.id = 'moonOverlay';
+      moonOverlay.style.cssText = 'position:fixed;top:40px;left:50%;transform:translateX(-50%);z-index:100;pointer-events:none;transition:opacity 0.5s;';
+      moonOverlay.innerHTML = '<div style="font-family:\'JetBrains Mono\',monospace;font-size:36px;font-weight:700;color:#FFE500;text-shadow:0 0 20px rgba(255,229,0,0.6);letter-spacing:4px;">MOO-N VIEW \uD83C\uDF19</div>';
+      document.body.appendChild(moonOverlay);
+    }
+    moonOverlay.style.opacity = '1';
+
+    // Zoom out to see the cow arc
+    state.viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(centerLng, centerLat - 5, 2000000),
+      orientation: {
+        heading: 0,
+        pitch: Cesium.Math.toRadians(-30),
+        roll: 0,
+      },
+      duration: 1.5,
+      complete: function () {
+        // Animate the cow flight - briefly tick the clock forward
+        const savedMultiplier = state.viewer.clock.multiplier;
+        const savedStart = state.viewer.clock.startTime.clone();
+        const savedStop = state.viewer.clock.stopTime.clone();
+        const savedCurrent = state.viewer.clock.currentTime.clone();
+
+        state.viewer.clock.startTime = t0;
+        state.viewer.clock.stopTime = t2;
+        state.viewer.clock.currentTime = t0;
+        state.viewer.clock.multiplier = 1;
+        state.viewer.clock.shouldAnimate = true;
+
+        // After cow flight finishes, clean up
+        setTimeout(function () {
+          state.viewer.clock.shouldAnimate = false;
+          state.viewer.entities.remove(cowEntity);
+
+          // Fade out overlay
+          moonOverlay.style.opacity = '0';
+
+          // Restore clock
+          state.viewer.clock.startTime = savedStart;
+          state.viewer.clock.stopTime = savedStop;
+          state.viewer.clock.currentTime = savedCurrent;
+          state.viewer.clock.multiplier = savedMultiplier;
+
+          // Fly back to previous view
+          state.viewer.camera.flyTo({
+            destination: savedPos,
+            orientation: {
+              direction: savedDir,
+              up: savedUp,
+            },
+            duration: 1.5,
+            complete: function () {
+              state.moonViewActive = false;
+              // Restore following
+              if (wasFollowing) {
+                state.isFollowing = true;
+                document.getElementById('btnFollow').classList.add('active');
+              }
+              if (wasPlaying) play();
+            },
+          });
+        }, 4500);
+      },
+    });
   }
 
   // ============================================================
