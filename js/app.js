@@ -87,7 +87,7 @@
     ctx.save();
     ctx.translate(cx, cy);
 
-    // Clean aircraft silhouette — simple, reads well at all sizes
+    // Sling TSi 916 — low-wing, single-engine prop, tapered straight wings
     const gold = '#FFE500';
 
     // Glow
@@ -95,40 +95,59 @@
     ctx.shadowBlur = 6;
     ctx.fillStyle = gold;
 
-    // Fuselage (slim pointed body)
+    // Propeller disc (nose spinner)
     ctx.beginPath();
-    ctx.moveTo(0, -26);   // nose
-    ctx.lineTo(3, -10);
-    ctx.lineTo(3, 18);
-    ctx.lineTo(0, 22);    // tail
-    ctx.lineTo(-3, 18);
-    ctx.lineTo(-3, -10);
+    ctx.ellipse(0, -26, 5, 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Fuselage — rounded, tapers front and rear (light-aircraft proportions)
+    ctx.beginPath();
+    ctx.moveTo(0, -25);   // nose (rounded cowling)
+    ctx.lineTo(3, -18);   // engine cowl widens
+    ctx.lineTo(3.5, -6);  // cabin area
+    ctx.lineTo(3, 8);     // fuselage mid
+    ctx.lineTo(2, 18);    // taper toward tail
+    ctx.lineTo(0, 23);    // tail tip
+    ctx.lineTo(-2, 18);
+    ctx.lineTo(-3, 8);
+    ctx.lineTo(-3.5, -6);
+    ctx.lineTo(-3, -18);
     ctx.closePath();
     ctx.fill();
 
-    // Wings (swept back)
+    // Wings — straight, slightly tapered (low-wing like Sling TSi)
+    // Wing root is wider, wing tip is narrower — NOT swept back
     ctx.beginPath();
-    ctx.moveTo(-3, -2);
-    ctx.lineTo(-22, 8);
-    ctx.lineTo(-20, 12);
-    ctx.lineTo(-3, 5);
-    ctx.lineTo(3, 5);
-    ctx.lineTo(20, 12);
-    ctx.lineTo(22, 8);
-    ctx.lineTo(3, -2);
+    ctx.moveTo(-3.5, -4);   // left wing root leading edge
+    ctx.lineTo(-24, -2);    // left wingtip leading edge
+    ctx.lineTo(-23, 2);     // left wingtip trailing edge (tapered)
+    ctx.lineTo(-3.5, 4);    // left wing root trailing edge
+    ctx.lineTo(3.5, 4);     // right wing root trailing edge
+    ctx.lineTo(23, 2);      // right wingtip trailing edge
+    ctx.lineTo(24, -2);     // right wingtip leading edge
+    ctx.lineTo(3.5, -4);    // right wing root leading edge
     ctx.closePath();
     ctx.fill();
 
-    // Tail stabilizer
+    // Horizontal stabilizer — smaller, straight, tapered
     ctx.beginPath();
-    ctx.moveTo(-2, 16);
-    ctx.lineTo(-10, 22);
-    ctx.lineTo(-9, 24);
-    ctx.lineTo(-2, 20);
-    ctx.lineTo(2, 20);
-    ctx.lineTo(9, 24);
-    ctx.lineTo(10, 22);
-    ctx.lineTo(2, 16);
+    ctx.moveTo(-2, 17);     // left root leading edge
+    ctx.lineTo(-11, 18);    // left tip leading edge
+    ctx.lineTo(-10, 21);    // left tip trailing edge
+    ctx.lineTo(-2, 20);     // left root trailing edge
+    ctx.lineTo(2, 20);      // right root trailing edge
+    ctx.lineTo(10, 21);     // right tip trailing edge
+    ctx.lineTo(11, 18);     // right tip leading edge
+    ctx.lineTo(2, 17);      // right root leading edge
+    ctx.closePath();
+    ctx.fill();
+
+    // Vertical stabilizer (fin) — small rectangle on top of tail
+    ctx.beginPath();
+    ctx.moveTo(-1, 15);
+    ctx.lineTo(-1, 21);
+    ctx.lineTo(1, 21);
+    ctx.lineTo(1, 15);
     ctx.closePath();
     ctx.fill();
 
@@ -446,10 +465,11 @@
       times.push(time);
     });
 
-    // Smooth interpolation
+    // Linear interpolation — aircraft follows the exact polyline path
+    // (Hermite degree-3 overshoots at sharp turns, causing path deviation)
     positionProperty.setInterpolationOptions({
-      interpolationDegree: 3,
-      interpolationAlgorithm: Cesium.HermitePolynomialApproximation,
+      interpolationDegree: 1,
+      interpolationAlgorithm: Cesium.LinearApproximation,
     });
 
     const startJulian = Cesium.JulianDate.addSeconds(
